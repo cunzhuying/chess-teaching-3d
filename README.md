@@ -3,7 +3,7 @@
 <p align="center"><strong>不只是能下棋，还告诉你为什么。</strong></p>
 
 <p align="center">
-  <a href="https://chic-sawine-48d16e.netlify.app/">
+  <a href="https://chess-teaching-3d.netlify.app/">
     <img src="https://img.shields.io/badge/%E2%96%B6_%E5%9C%A8%E7%BA%BF%E8%AF%95%E7%8E%A9-Live_Demo-2ea44f?style=for-the-badge" alt="Live Demo" />
   </a>
   <img src="https://img.shields.io/badge/Vite-7-646CFF?logo=vite&logoColor=white" alt="Vite" />
@@ -20,7 +20,7 @@
 </p>
 
 <p align="center">
-  <a href="https://chic-sawine-48d16e.netlify.app/">
+  <a href="https://chess-teaching-3d.netlify.app/">
     <img src="docs/social-preview.png" alt="教学式 3D 国际象棋 · 多步推演与送子警告" />
   </a>
 </p>
@@ -42,7 +42,7 @@
 
 ## 在线体验
 
-👉 **https://chic-sawine-48d16e.netlify.app/**
+👉 **https://chess-teaching-3d.netlify.app/**
 
 打开即可下棋，不需要安装。联机时一人创建房间，另一人输入 6 位房间号。
 
@@ -295,7 +295,7 @@ tests/           # 规则/记谱/控制器/引擎/分析
 
 ## 部署到 Netlify（当前线上）
 
-线上地址：**https://chic-sawine-48d16e.netlify.app/**
+线上地址：**https://chess-teaching-3d.netlify.app/**
 
 1. Netlify → Add new site → Import an existing project；
 2. 选择 GitHub 仓库 `cunzhuying/chess-teaching-3d`；
