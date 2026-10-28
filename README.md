@@ -1,6 +1,50 @@
-# 教学式 3D 国际象棋
+<h1 align="center">教学式 3D 国际象棋</h1>
 
-一个面向新手的国际象棋教学应用：标准规则、双人同屏、教学 AI、3D 木质棋盘，以及“这枚棋子现在被谁威胁、我该走哪里”的实时解析。
+<p align="center"><strong>不只是能下棋，还告诉你为什么。</strong></p>
+
+<p align="center">
+  <a href="https://chic-sawine-48d16e.netlify.app/">
+    <img src="https://img.shields.io/badge/%E2%96%B6_%E5%9C%A8%E7%BA%BF%E8%AF%95%E7%8E%A9-Live_Demo-2ea44f?style=for-the-badge" alt="Live Demo" />
+  </a>
+  <img src="https://img.shields.io/badge/Vite-7-646CFF?logo=vite&logoColor=white" alt="Vite" />
+  <img src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=061A23" alt="React" />
+  <img src="https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white" alt="TypeScript" />
+  <img src="https://img.shields.io/badge/Three.js-r186-000000?logo=three.js&logoColor=white" alt="Three.js" />
+  <img src="https://img.shields.io/badge/PeerJS-P2P-FF6B6B" alt="PeerJS" />
+  <img src="https://img.shields.io/badge/tests-68%20passing-2ea44f" alt="Tests" />
+</p>
+
+<p align="center">
+  面向新手的教学式 3D 国际象棋：标准规则、多步推演、送子警告、教学 AI、<br/>
+  威胁/保护连线、3D 木质棋盘，以及基于 PeerJS 的 P2P 联机。
+</p>
+
+<p align="center">
+  <a href="https://chic-sawine-48d16e.netlify.app/">
+    <img src="docs/social-preview.png" alt="教学式 3D 国际象棋 · 多步推演与送子警告" />
+  </a>
+</p>
+
+> A teaching-first 3D chess app for beginners: multi-move preview, blunder warnings, coaching AI, threat lines, and peer-to-peer online play.
+
+## 为什么值得一玩
+
+| 教学能力 | 说明 |
+|---|---|
+| 🧠 **多步推演** | 悬停一步棋，直接看到“你走 → 对方最可能怎么应 → 你接下来怎么走” |
+| 🚨 **送子警告** | 臭棋不只说“不好”，而是直接说“对方会用车吃掉你的后，损失 9 分” |
+| 🎯 **威胁 / 保护连线** | 只在选中棋子时出现，最多 3 条；红线威胁、金线可吃、绿线保护 |
+| 🤖 **教学 AI** | 四档难度、执白/执黑、评估条、AI 每步解析 |
+| 🌱 **大局观** | 占据中心、子力出动、王的安全、空间优势，不只盯着吃子 |
+| 🌐 **P2P 联机** | 6 位房间号，PeerJS DataChannel，不需要游戏后端 |
+| 🧱 **3D 木质棋盘** | GLB 棋子 + 程序化木纹 + 吃子倒地 + Web Audio 音效 |
+| ✅ **规则可靠** | chess.js 唯一规则真源，68 项测试 + 深度 perft |
+
+## 在线体验
+
+👉 **https://chic-sawine-48d16e.netlify.app/**
+
+打开即可下棋，不需要安装。联机时一人创建房间，另一人输入 6 位房间号。
 
 **当前进度：Step 5 · 多步推演与纠错。** 规则内核、GLB 棋子、AI 对局继续保留；这一版把教学核心接上了：合法攻击图 + SEE、选中棋子才出现的威胁/保护连线、引擎最佳与备选推荐、己方/敌方棋子的通俗深度解析、“虚影走法预测”、多步推演与送子红字警告，以及 PeerJS P2P 联机。
 
@@ -249,7 +293,23 @@ tests/           # 规则/记谱/控制器/引擎/分析
 - GLB 棋子是低多边形标准棋套，不是写实雕刻。
 - 吃子已有沿攻击方向倒地 + 消融，但还没有木屑/碎裂粒子。
 
+## 部署到 Netlify（当前线上）
+
+线上地址：**https://chic-sawine-48d16e.netlify.app/**
+
+1. Netlify → Add new site → Import an existing project；
+2. 选择 GitHub 仓库 `cunzhuying/chess-teaching-3d`；
+3. 构建配置读取根目录的 [netlify.toml](netlify.toml)：
+   - Build command：`pnpm build`
+   - Publish directory：`dist`
+   - Node：22
+4. Deploy。
+
+之后每次 `git push` 到 `main`，Netlify 会自动部署。
+
 ## 部署到 Vercel
+
+> 注意：部分网络会污染 `vercel.app` 域名，国内分享优先使用上面的 Netlify 地址。
 
 项目已加 `vercel.json`，是纯静态 Vite 应用，不需要 API/后端。
 
@@ -283,6 +343,11 @@ pnpm dlx vercel --prod
 - PeerJS 的 WebRTC 数据不经过 Vercel；Vercel 只托管静态页面。
 
 注意：公共 PeerJS Cloud 仍负责 WebRTC 握手；极少数对称 NAT 网络可能需要 TURN，本轮未配置。
+
+## License
+
+- **代码**：[MIT](LICENSE) © 2026 cunzhuying
+- **棋子模型**：Pia Leung，CC BY 3.0；详见下方模型署名与 [public/models/ATTRIBUTION.md](public/models/ATTRIBUTION.md)
 
 ## 模型署名
 
