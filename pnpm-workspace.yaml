@@ -1,0 +1,11 @@
+packages:
+  - '.'
+
+# Flat node_modules avoids Windows junction issues in this sandbox and keeps
+# package resolution predictable.
+nodeLinker: hoisted
+ignoreScripts: true
+
+# This environment runs scripts through an absolute Node path; skip pnpm's
+# implicit "install before run" check so `pnpm dev` starts immediately.
+verifyDepsBeforeRun: false
