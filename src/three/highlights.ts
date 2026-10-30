@@ -354,7 +354,7 @@ export class HighlightLayer {
     }
     if (!this.hovered) return;
 
-    this.addPlane(this.hovered, this.hoverMaterial, 0.028, 6);
+    this.addPlane(this.hovered, this.hoverMaterial, 0.028, 1);
     const point = squareToWorld(this.hovered, 0.032);
     const half = 0.48;
     const points = [
