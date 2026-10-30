@@ -88,6 +88,11 @@ export const BoardCanvas = forwardRef<BoardCanvasHandle, BoardCanvasProps>(
                 handlersRef.current.onSquareClick(square, input),
               onHoverSquare: (square) =>
                 handlersRef.current.onHoverSquare(square),
+              onContextLost: (message) => {
+                setLoading(false);
+                setFailed(message);
+                handlersRef.current.onUnsupported?.();
+              },
             },
             assets,
           );

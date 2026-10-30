@@ -156,6 +156,13 @@ export default function App() {
   const [showConnections, setShowConnections] = useState(() =>
     readToggle('chess.showConnections', true),
   );
+  const [showHoverPreview, setShowHoverPreview] = useState(() =>
+    readToggle('chess.showHoverPreview', true),
+  );
+  const [showPanel, setShowPanel] = useState(() =>
+    readToggle('chess.showPanel', true),
+  );
+  const [displayOpen, setDisplayOpen] = useState(false);
 
   const [mode, setMode] = useState<GameMode>('pvp');
   const [playerColor, setPlayerColor] = useState<Side>('w');
@@ -197,6 +204,7 @@ export default function App() {
   const onlineHostColorRef = useRef<Side>('w');
   const onlineConnectedRef = useRef(false);
   const onlineMessageRef = useRef<(message: NetMessage) => void>(() => {});
+  const displayRef = useRef<HTMLDivElement>(null);
 
   const snap = useMemo(() => game.snapshot(), [game, version]);
   const records = game.history;
@@ -292,13 +300,16 @@ export default function App() {
     };
   })();
 
-  const opponentArrow =
-    preview && candidate?.reply
-      ? {
-          from: candidate.reply.from as Square,
-          to: candidate.reply.to as Square,
-        }
-      : null;
+  const opponentArrow = useMemo(
+    () =>
+      showHoverPreview && preview && candidate?.reply
+        ? {
+            from: candidate.reply.from as Square,
+            to: candidate.reply.to as Square,
+          }
+        : null,
+    [showHoverPreview, preview, candidate],
+  );
 
   const visibleRecommendations =
     showRecommendations &&
@@ -307,9 +318,7 @@ export default function App() {
     !aiThinking &&
     !preview &&
     !snap.result
-      ? selected
-        ? recommendations.slice(0, 1)
-        : recommendations
+      ? recommendations.slice(0, 1)
       : [];
   const visibleConnections =
     showConnections && selected && !animating && !aiThinking && !preview
@@ -361,6 +370,7 @@ export default function App() {
   useEffect(() => {
     const token = (candidateToken.current += 1);
     if (
+      !showHoverPreview ||
       !preview ||
       !selected ||
       !humanTurn ||
@@ -416,6 +426,7 @@ export default function App() {
 
     return () => window.clearTimeout(timer);
   }, [
+    showHoverPreview,
     preview,
     selected,
     humanTurn,
@@ -426,7 +437,7 @@ export default function App() {
     snap.fen,
   ]);
   const visiblePreviewConnections =
-    showConnections && preview && !animating && !aiThinking
+    showHoverPreview && showConnections && preview && !animating && !aiThinking
       ? ghostConnectionSet.connections
       : [];
 
@@ -484,10 +495,40 @@ export default function App() {
         'chess.showConnections',
         showConnections ? '1' : '0',
       );
+      window.localStorage.setItem(
+        'chess.showHoverPreview',
+        showHoverPreview ? '1' : '0',
+      );
+      window.localStorage.setItem(
+        'chess.showPanel',
+        showPanel ? '1' : '0',
+      );
     } catch {
       // 隐私模式下 localStorage 可能不可用；开关仍然只在本次会话生效。
     }
-  }, [showRecommendations, showConnections]);
+  }, [
+    showRecommendations,
+    showConnections,
+    showHoverPreview,
+    showPanel,
+  ]);
+
+  useEffect(() => {
+    if (!displayOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (displayRef.current?.contains(event.target as Node)) return;
+      setDisplayOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, [displayOpen]);
+
+  useEffect(() => {
+    if (showHoverPreview) return;
+    setPreview(null);
+    setCandidate(null);
+    setCandidateLoading(false);
+  }, [showHoverPreview]);
 
   useEffect(() => {
     return () => {
@@ -1125,7 +1166,7 @@ export default function App() {
     }
 
     if (targets.has(square)) {
-      if (input === 'touch' && preview?.to !== square) {
+      if (input === 'touch' && showHoverPreview && preview?.to !== square) {
         const nextPreview = game.preview(selected, square);
         if (nextPreview) {
           setPreview(nextPreview);
@@ -1159,6 +1200,10 @@ export default function App() {
 
   function handleHoverSquare(square: Square | null): void {
     if (snap.result || promotion || busy) return;
+    if (!showHoverPreview) {
+      if (preview) setPreview(null);
+      return;
+    }
     setInputMode('mouse');
     if (!selected || !square || !targets.has(square)) {
       setPreview(null);
@@ -1174,6 +1219,12 @@ export default function App() {
 
   function previewRecommendation(recommendation: Recommendation): void {
     if (busy) return;
+    if (!showHoverPreview) {
+      setSelected(recommendation.move.from);
+      setPreview(null);
+      setMessage(`推荐：${recommendation.label}。虚影预览已关闭。`);
+      return;
+    }
     const nextPreview = game.preview(
       recommendation.move.from,
       recommendation.move.to,
@@ -1282,7 +1333,8 @@ export default function App() {
 
   function handleUnsupported(): void {
     setViewMode('2d');
-    setMessage('当前设备不支持 WebGL，已切换到 2D 棋盘。');
+    setAnimating(false);
+    setMessage('WebGL 不可用或上下文已丢失，已切换到 2D 棋盘。');
   }
 
   function handleToggleSound(): void {
@@ -1314,24 +1366,73 @@ export default function App() {
                 ? `联机 · ${onlineStatusZh(onlineStatus)}`
                 : '双人同屏'}
           </span>
-          <button
-            type="button"
-            className="btn ghost"
-            aria-pressed={showRecommendations}
-            onClick={() => setShowRecommendations((value) => !value)}
-            title="显示或隐藏 3D 推荐箭头与右侧推荐卡"
-          >
-            {showRecommendations ? '推荐 开' : '推荐 关'}
-          </button>
-          <button
-            type="button"
-            className="btn ghost"
-            aria-pressed={showConnections}
-            onClick={() => setShowConnections((value) => !value)}
-            title="显示或隐藏选中棋子的威胁/保护连线"
-          >
-            {showConnections ? '连线 开' : '连线 关'}
-          </button>
+          <div className="display-settings" ref={displayRef}>
+            <button
+              type="button"
+              className="btn ghost"
+              aria-expanded={displayOpen}
+              aria-haspopup="true"
+              onClick={() => setDisplayOpen((value) => !value)}
+            >
+              显示设置
+            </button>
+            {displayOpen && (
+              <div className="display-menu" role="menu">
+                <label className="display-option">
+                  <input
+                    type="checkbox"
+                    checked={showRecommendations}
+                    onChange={(event) => {
+                      setShowRecommendations(event.target.checked);
+                    }}
+                  />
+                  <span>
+                    <strong>推荐棋法</strong>
+                    <small>3D 推荐箭头与推荐卡</small>
+                  </span>
+                </label>
+                <label className="display-option">
+                  <input
+                    type="checkbox"
+                    checked={showConnections}
+                    onChange={(event) => {
+                      setShowConnections(event.target.checked);
+                    }}
+                  />
+                  <span>
+                    <strong>威胁/保护箭头</strong>
+                    <small>红=威胁，绿=保护，金=可吃</small>
+                  </span>
+                </label>
+                <label className="display-option">
+                  <input
+                    type="checkbox"
+                    checked={showHoverPreview}
+                    onChange={(event) => {
+                      setShowHoverPreview(event.target.checked);
+                    }}
+                  />
+                  <span>
+                    <strong>预设下子（虚影/推演）</strong>
+                    <small>关闭后不显示虚影和悬停推演</small>
+                  </span>
+                </label>
+                <label className="display-option">
+                  <input
+                    type="checkbox"
+                    checked={showPanel}
+                    onChange={(event) => {
+                      setShowPanel(event.target.checked);
+                    }}
+                  />
+                  <span>
+                    <strong>右侧提示栏</strong>
+                    <small>关闭后只保留棋盘和顶栏</small>
+                  </span>
+                </label>
+              </div>
+            )}
+          </div>
           <button
             type="button"
             className="btn ghost"
@@ -1346,7 +1447,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="layout">
+      <main className={showPanel ? 'layout' : 'layout clean'}>
         <section className="board-column" aria-label="棋盘区域">
           <div className={viewMode === '3d' ? 'board-stage' : 'board-frame'}>
             {viewMode === '3d' ? (
@@ -1431,7 +1532,10 @@ export default function App() {
           </div>
         </section>
 
-        <aside className="panel" aria-label="对局信息">
+        <aside
+          className={showPanel ? 'panel' : 'panel hidden'}
+          aria-label="对局信息"
+        >
           <section className="card mode-card">
             <div className="card-head">
               <span>对局模式</span>

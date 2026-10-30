@@ -389,6 +389,34 @@ function addWoodUv(geometry: THREE.BufferGeometry, height: number): void {
   geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
 }
 
+/**
+ * 皇后和国王的轮廓太接近；只把皇后上半段（皇冠区域）在 XZ 方向放大，
+ * 底座和身体比例不变，避免整体变胖。
+ */
+function enlargeQueenCrown(geometry: THREE.BufferGeometry): void {
+  geometry.computeBoundingBox();
+  const box = geometry.boundingBox;
+  if (!box) return;
+  const height = box.max.y - box.min.y;
+  if (height <= 0) return;
+
+  const position = geometry.getAttribute('position');
+  for (let index = 0; index < position.count; index += 1) {
+    const y = position.getY(index);
+    const t = (y - box.min.y) / height;
+    if (t < 0.62) continue;
+    const progress = Math.min(1, (t - 0.62) / 0.38);
+    const smooth = progress * progress * (3 - 2 * progress);
+    const factor = 1 + smooth * 0.2;
+    position.setX(index, position.getX(index) * factor);
+    position.setZ(index, position.getZ(index) * factor);
+  }
+  position.needsUpdate = true;
+  geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+}
+
 function extractModelGeometries(root: THREE.Object3D): PieceGeometryMap {
   root.updateMatrixWorld(true);
   const meshes: THREE.Mesh[] = [];
@@ -429,6 +457,7 @@ function extractModelGeometries(root: THREE.Object3D): PieceGeometryMap {
     const scale = PIECE_HEIGHTS[definition.type] / height;
     // 低多边形模型的原型偏矮胖；稍微收窄底座、拉高一点，更接近标准棋子的比例。
     geometry.scale(scale * 0.88, scale * 1.08, scale * 0.88);
+    if (definition.type === 'q') enlargeQueenCrown(geometry);
     geometry.computeBoundingBox();
     geometry.computeBoundingSphere();
     addWoodUv(geometry, PIECE_HEIGHTS[definition.type] * 1.08);

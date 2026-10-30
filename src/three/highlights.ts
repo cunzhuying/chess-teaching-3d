@@ -11,7 +11,14 @@ import { COLORS } from './palette';
 import { squareToWorld } from './square';
 
 /**
- * 妫嬬洏涓婄殑鍏ㄩ儴淇℃伅灞傦細涓婁竴姝ャ€侀€変腑銆佸悎娉曟牸銆佸皢鍐涖€侀瑙堢洰鏍囥€? * 濞佽儊/淇濇姢杩炵嚎涓庢帹鑽愮澶淬€? */
+ * 棋盘信息层。这里只做“显示”，所有几何体和材质要么共享、要么在重建时 dispose。
+ *
+ * 视觉原则：
+ * - 合法落子 = 底部发光方框，不再用圆点；
+ * - 关系线 = 一条直线箭头，红=威胁，绿=保护，金=可吃；
+ * - 推荐 = 只画最佳一条金箭头，备选留在右侧面板；
+ * - 虚影 = 虚线箭头 + 锥形箭头头部。
+ */
 export class HighlightLayer {
   readonly group = new THREE.Group();
 
@@ -22,34 +29,34 @@ export class HighlightLayer {
   private readonly opponentArrowGroup = new THREE.Group();
 
   private readonly planeGeometry: THREE.PlaneGeometry;
-  private readonly dotGeometry: THREE.CircleGeometry;
-  private readonly captureGeometry: THREE.RingGeometry;
+  private readonly targetRingGeometry: THREE.BufferGeometry;
+  private readonly targetGlowGeometry: THREE.BufferGeometry;
   private readonly selectedGeometry: THREE.RingGeometry;
   private readonly checkGeometry: THREE.RingGeometry;
   private readonly previewGeometry: THREE.RingGeometry;
-  private readonly linkRingGeometry: THREE.RingGeometry;
 
   private readonly lastMoveMaterial: THREE.MeshBasicMaterial;
   private readonly selectedMaterial: THREE.MeshBasicMaterial;
-  private readonly dotMaterial: THREE.MeshBasicMaterial;
-  private readonly captureMaterial: THREE.MeshBasicMaterial;
+  private readonly targetMaterial: THREE.MeshBasicMaterial;
+  private readonly targetCaptureMaterial: THREE.MeshBasicMaterial;
+  private readonly targetGlowMaterial: THREE.MeshBasicMaterial;
   private readonly checkMaterial: THREE.MeshBasicMaterial;
   private readonly previewMaterial: THREE.MeshBasicMaterial;
   private readonly hoverMaterial: THREE.MeshBasicMaterial;
   private readonly hoverLineMaterial: THREE.LineBasicMaterial;
-  private readonly threatLineMaterial: THREE.MeshBasicMaterial;
-  private readonly protectLineMaterial: THREE.MeshBasicMaterial;
-  private readonly captureLineMaterial: THREE.MeshBasicMaterial;
-  private readonly bestRecommendationMaterial: THREE.MeshBasicMaterial;
-  private readonly alternativeRecommendationMaterial: THREE.MeshBasicMaterial;
-  private readonly ghostThreatMaterial: THREE.LineDashedMaterial;
-  private readonly ghostProtectMaterial: THREE.LineDashedMaterial;
-  private readonly ghostCaptureMaterial: THREE.LineDashedMaterial;
-  private readonly ghostThreatRingMaterial: THREE.MeshBasicMaterial;
-  private readonly ghostProtectRingMaterial: THREE.MeshBasicMaterial;
-  private readonly ghostCaptureRingMaterial: THREE.MeshBasicMaterial;
+
+  private readonly threatArrowMaterial: THREE.MeshBasicMaterial;
+  private readonly protectArrowMaterial: THREE.MeshBasicMaterial;
+  private readonly captureArrowMaterial: THREE.MeshBasicMaterial;
+  private readonly recommendationArrowMaterial: THREE.MeshBasicMaterial;
   private readonly opponentArrowMaterial: THREE.MeshBasicMaterial;
-  private readonly opponentArrowRingMaterial: THREE.MeshBasicMaterial;
+
+  private readonly ghostThreatLineMaterial: THREE.LineDashedMaterial;
+  private readonly ghostProtectLineMaterial: THREE.LineDashedMaterial;
+  private readonly ghostCaptureLineMaterial: THREE.LineDashedMaterial;
+  private readonly ghostThreatConeMaterial: THREE.MeshBasicMaterial;
+  private readonly ghostProtectConeMaterial: THREE.MeshBasicMaterial;
+  private readonly ghostCaptureConeMaterial: THREE.MeshBasicMaterial;
 
   private checkMesh: THREE.Mesh | null = null;
   private previewMesh: THREE.Mesh | null = null;
@@ -70,210 +77,125 @@ export class HighlightLayer {
     this.opponentArrowGroup.renderOrder = 7;
 
     this.planeGeometry = this.flatPlane();
-    this.dotGeometry = this.flatCircle(0.1);
-    this.captureGeometry = this.flatRing(0.34, 0.42);
+    this.targetRingGeometry = this.flatSquareRing(0.34, 0.45);
+    this.targetGlowGeometry = this.flatSquareRing(0.4, 0.49);
     this.selectedGeometry = this.flatRing(0.41, 0.48);
     this.checkGeometry = this.flatRing(0.36, 0.47);
     this.previewGeometry = this.flatRing(0.43, 0.5);
-    this.linkRingGeometry = this.flatRing(0.44, 0.5);
 
-    this.lastMoveMaterial = new THREE.MeshBasicMaterial({
-      color: COLORS.lastMove,
-      transparent: true,
-      opacity: 0.3,
-      depthWrite: false,
-      toneMapped: false,
-    });
-    this.selectedMaterial = new THREE.MeshBasicMaterial({
-      color: COLORS.selection,
-      transparent: true,
-      opacity: 0.95,
-      depthWrite: false,
-      toneMapped: false,
-    });
-    this.dotMaterial = new THREE.MeshBasicMaterial({
-      color: COLORS.gold,
-      transparent: true,
-      opacity: 0.95,
-      depthWrite: false,
-      toneMapped: false,
-    });
-    this.captureMaterial = new THREE.MeshBasicMaterial({
+    this.lastMoveMaterial = this.flatMaterial(COLORS.lastMove, 0.2);
+    this.selectedMaterial = this.flatMaterial(COLORS.selection, 0.95);
+    this.targetMaterial = this.flatMaterial(COLORS.goldBright, 0.95);
+    this.targetCaptureMaterial = this.flatMaterial(COLORS.danger, 0.9);
+    this.targetGlowMaterial = this.flatMaterial(COLORS.gold, 0.18);
+    this.checkMaterial = this.flatMaterial(COLORS.danger, 0.8);
+    this.previewMaterial = this.flatMaterial(COLORS.goldBright, 0.55);
+    this.hoverMaterial = this.flatMaterial(COLORS.selection, 0.07);
+    this.hoverLineMaterial = new THREE.LineBasicMaterial({
       color: COLORS.goldBright,
       transparent: true,
       opacity: 0.85,
       depthWrite: false,
       toneMapped: false,
     });
-    this.checkMaterial = new THREE.MeshBasicMaterial({
-      color: COLORS.danger,
-      transparent: true,
-      opacity: 0.8,
-      depthWrite: false,
-      toneMapped: false,
-    });
-    this.previewMaterial = new THREE.MeshBasicMaterial({
-      color: COLORS.goldBright,
-      transparent: true,
-      opacity: 0.55,
-      depthWrite: false,
-      toneMapped: false,
-    });
-    this.hoverMaterial = new THREE.MeshBasicMaterial({
-      color: COLORS.selection,
-      transparent: true,
-      opacity: 0.08,
-      depthWrite: false,
-      toneMapped: false,
-    });
-    this.hoverLineMaterial = new THREE.LineBasicMaterial({
-      color: COLORS.goldBright,
-      transparent: true,
-      opacity: 0.9,
-      depthWrite: false,
-      toneMapped: false,
-    });
-    this.threatLineMaterial = this.lineMaterial(0xe0604f, 0.9);
-    this.protectLineMaterial = this.lineMaterial(0x6fbf8b, 0.72);
-    this.captureLineMaterial = this.lineMaterial(0xe0b45e, 0.78);
-    this.bestRecommendationMaterial = this.lineMaterial(0xf3cd7d, 0.9);
-    this.alternativeRecommendationMaterial = this.lineMaterial(0x5aa9e6, 0.55);
-    this.ghostThreatMaterial = this.dashedLineMaterial(0xff7b68, 0.95);
-    this.ghostProtectMaterial = this.dashedLineMaterial(0x7fd8a0, 0.9);
-    this.ghostCaptureMaterial = this.dashedLineMaterial(0xf0c56b, 0.9);
-    this.ghostThreatRingMaterial = this.lineMaterial(0xff7b68, 0.55);
-    this.ghostProtectRingMaterial = this.lineMaterial(0x7fd8a0, 0.5);
-    this.ghostCaptureRingMaterial = this.lineMaterial(0xf0c56b, 0.5);
-    this.opponentArrowMaterial = new THREE.MeshBasicMaterial({
-      color: 0xd05a4f,
-      transparent: true,
-      opacity: 0.34,
-      depthTest: false,
-      depthWrite: false,
-      toneMapped: false,
-    });
-    this.opponentArrowRingMaterial = this.lineMaterial(0xd05a4f, 0.32);
+
+    this.threatArrowMaterial = this.arrowMaterial(0xe0604f, 0.9);
+    this.protectArrowMaterial = this.arrowMaterial(0x6fbf8b, 0.82);
+    this.captureArrowMaterial = this.arrowMaterial(0xe0b45e, 0.84);
+    this.recommendationArrowMaterial = this.arrowMaterial(0xf3cd7d, 0.9);
+    this.opponentArrowMaterial = this.arrowMaterial(0xd05a4f, 0.34);
+
+    this.ghostThreatLineMaterial = this.dashedLineMaterial(0xff7b68, 0.9);
+    this.ghostProtectLineMaterial = this.dashedLineMaterial(0x7fd8a0, 0.85);
+    this.ghostCaptureLineMaterial = this.dashedLineMaterial(0xf0c56b, 0.85);
+    this.ghostThreatConeMaterial = this.arrowMaterial(0xff7b68, 0.65);
+    this.ghostProtectConeMaterial = this.arrowMaterial(0x7fd8a0, 0.6);
+    this.ghostCaptureConeMaterial = this.arrowMaterial(0xf0c56b, 0.6);
   }
 
+  /** 最多 3 条关系箭头：红=威胁，绿=保护，金=可吃。 */
   setConnections(connections: BoardConnection[]): void {
     this.clearGroup(this.connectionsGroup);
     connections.slice(0, 3).forEach((connection, index) => {
       const material =
         connection.kind === 'threat'
-          ? this.threatLineMaterial
+          ? this.threatArrowMaterial
           : connection.kind === 'protect'
-            ? this.protectLineMaterial
-            : this.captureLineMaterial;
-      const radius = connection.kind === 'threat' ? 0.022 : 0.017;
-      const height =
-        connection.kind === 'threat'
-          ? 0.3
-          : connection.kind === 'protect'
-            ? 0.5
-            : 0.68;
-      this.addCurve(
+            ? this.protectArrowMaterial
+            : this.captureArrowMaterial;
+      this.addArrow(
         this.connectionsGroup,
         connection.from,
         connection.to,
         material,
-        radius,
-        height,
-        8 + index,
-      );
-      this.addRingTo(
-        this.connectionsGroup,
-        connection.to,
-        material,
-        0.03,
+        0.012,
+        0.05,
+        0.18,
+        0.12,
         8 + index,
       );
     });
   }
 
+  /** 推荐只保留最佳的一条金箭头，备选在面板里看。 */
   setRecommendations(recommendations: Recommendation[]): void {
     this.clearGroup(this.recommendationsGroup);
-    recommendations.slice(0, 3).forEach((recommendation, index) => {
-      const best = recommendation.rank === 1;
-      const material = best
-        ? this.bestRecommendationMaterial
-        : this.alternativeRecommendationMaterial;
-      this.addCurve(
-        this.recommendationsGroup,
-        recommendation.move.from,
-        recommendation.move.to,
-        material,
-        best ? 0.03 : 0.015,
-        best ? 1.1 : 0.62,
-        9 + index,
-      );
-      this.addRingTo(
-        this.recommendationsGroup,
-        recommendation.move.to,
-        material,
-        0.035,
-        9 + index,
-      );
-    });
+    const best = recommendations.find((item) => item.rank === 1);
+    if (!best) return;
+    this.addArrow(
+      this.recommendationsGroup,
+      best.move.from,
+      best.move.to,
+      this.recommendationArrowMaterial,
+      0.018,
+      0.06,
+      0.2,
+      0.16,
+      9,
+    );
   }
 
-  /**
-   * 虚影预测线：走法还没有落子，所以用虚线表示“假想局面”。
-   * 颜色与真实关系线一致：红=走后被威胁，金=走后能吃什么，绿=走后谁保护它。
-   */
+  /** 虚影预测：虚线 + 锥形头，仍然只画最多 3 条。 */
   setPreviewConnections(connections: BoardConnection[]): void {
     this.clearGroup(this.previewConnectionsGroup);
     connections.slice(0, 3).forEach((connection, index) => {
-      const material =
+      const lineMaterial =
         connection.kind === 'threat'
-          ? this.ghostThreatMaterial
+          ? this.ghostThreatLineMaterial
           : connection.kind === 'protect'
-            ? this.ghostProtectMaterial
-            : this.ghostCaptureMaterial;
-      const ringMaterial =
+            ? this.ghostProtectLineMaterial
+            : this.ghostCaptureLineMaterial;
+      const coneMaterial =
         connection.kind === 'threat'
-          ? this.ghostThreatRingMaterial
+          ? this.ghostThreatConeMaterial
           : connection.kind === 'protect'
-            ? this.ghostProtectRingMaterial
-            : this.ghostCaptureRingMaterial;
-      this.addDashedCurve(
+            ? this.ghostProtectConeMaterial
+            : this.ghostCaptureConeMaterial;
+      this.addDashedArrow(
         this.previewConnectionsGroup,
         connection.from,
         connection.to,
-        material,
-        0.45,
-        10 + index,
-      );
-      this.addRingTo(
-        this.previewConnectionsGroup,
-        connection.to,
-        ringMaterial,
-        0.05,
+        lineMaterial,
+        coneMaterial,
+        0.13,
         10 + index,
       );
     });
   }
 
-  /**
-   * 对手最可能应招：半透明、较粗的敌方箭头，和“我现在被谁威胁”的红线区分开。
-   * 只画一条，避免推演信息压过玩家自己的选择。
-   */
+  /** 对手最可能应招：半透明直箭头，只一条。 */
   setOpponentArrow(arrow: { from: Square; to: Square } | null): void {
     this.clearGroup(this.opponentArrowGroup);
     if (!arrow) return;
-    this.addCurve(
+    this.addArrow(
       this.opponentArrowGroup,
       arrow.from,
       arrow.to,
       this.opponentArrowMaterial,
-      0.045,
-      1.05,
-      7,
-    );
-    this.addRingTo(
-      this.opponentArrowGroup,
-      arrow.to,
-      this.opponentArrowRingMaterial,
-      0.06,
+      0.035,
+      0.1,
+      0.28,
+      0.18,
       7,
     );
   }
@@ -289,20 +211,31 @@ export class HighlightLayer {
     this.previewMesh = null;
 
     if (snapshot.lastMove) {
-      this.addPlane(snapshot.lastMove.from, this.lastMoveMaterial, 0.006, 1);
-      this.addPlane(snapshot.lastMove.to, this.lastMoveMaterial, 0.006, 1);
+      // 抬高到棋盘表面以上，避免和格子 z-fighting 造成“闪烁的残光”。
+      this.addPlane(snapshot.lastMove.from, this.lastMoveMaterial, 0.014, 1);
+      this.addPlane(snapshot.lastMove.to, this.lastMoveMaterial, 0.014, 1);
     }
 
     if (selected) {
-      this.addMesh(this.selectedGeometry, this.selectedMaterial, selected, 0.013, 2);
+      this.addMesh(this.selectedGeometry, this.selectedMaterial, selected, 0.026, 2);
     }
 
     for (const [square, move] of targets) {
-      if (move.isCapture) {
-        this.addMesh(this.captureGeometry, this.captureMaterial, square, 0.016, 3);
-      } else {
-        this.addMesh(this.dotGeometry, this.dotMaterial, square, 0.016, 3);
-      }
+      // 底部发光方框：外圈柔光 + 内圈清晰边框。
+      this.addMesh(
+        this.targetGlowGeometry,
+        this.targetGlowMaterial,
+        square,
+        0.018,
+        3,
+      );
+      this.addMesh(
+        this.targetRingGeometry,
+        move.isCapture ? this.targetCaptureMaterial : this.targetMaterial,
+        square,
+        0.026,
+        4,
+      );
     }
 
     if (snapshot.checkSquare) {
@@ -310,8 +243,8 @@ export class HighlightLayer {
         this.checkGeometry,
         this.checkMaterial,
         snapshot.checkSquare,
-        0.019,
-        4,
+        0.03,
+        5,
       );
     }
 
@@ -320,8 +253,8 @@ export class HighlightLayer {
         this.previewGeometry,
         this.previewMaterial,
         preview.to,
-        0.023,
-        5,
+        0.034,
+        6,
       );
     }
 
@@ -338,20 +271,20 @@ export class HighlightLayer {
     const pulse = 0.5 + 0.5 * Math.sin(time / 260);
     if (this.checkMesh) {
       this.checkMaterial.opacity = 0.55 + pulse * 0.35;
-      this.checkMesh.scale.setScalar(1 + pulse * 0.06);
+      this.checkMesh.scale.setScalar(1 + pulse * 0.04);
     }
     if (this.previewMesh) {
       this.previewMaterial.opacity = 0.42 + pulse * 0.3;
-      this.previewMesh.scale.setScalar(1 + pulse * 0.035);
+      this.previewMesh.scale.setScalar(1 + pulse * 0.025);
     }
-    // 最佳推荐做轻微“呼吸”，不闪烁、不遮挡。
-    this.bestRecommendationMaterial.opacity = 0.55 + pulse * 0.32;
-    this.alternativeRecommendationMaterial.opacity = 0.42 + pulse * 0.12;
-    const ghostPulse = 0.5 + 0.5 * Math.sin(time / 330);
-    this.ghostThreatMaterial.opacity = 0.7 + ghostPulse * 0.25;
-    this.ghostProtectMaterial.opacity = 0.62 + ghostPulse * 0.22;
-    this.ghostCaptureMaterial.opacity = 0.62 + ghostPulse * 0.22;
-    this.opponentArrowMaterial.opacity = 0.26 + ghostPulse * 0.14;
+    this.targetMaterial.opacity = 0.72 + pulse * 0.24;
+    this.targetCaptureMaterial.opacity = 0.72 + pulse * 0.24;
+    this.targetGlowMaterial.opacity = 0.1 + pulse * 0.12;
+    this.recommendationArrowMaterial.opacity = 0.65 + pulse * 0.25;
+    this.ghostThreatLineMaterial.opacity = 0.65 + pulse * 0.2;
+    this.ghostProtectLineMaterial.opacity = 0.6 + pulse * 0.2;
+    this.ghostCaptureLineMaterial.opacity = 0.6 + pulse * 0.2;
+    this.opponentArrowMaterial.opacity = 0.26 + pulse * 0.1;
   }
 
   dispose(): void {
@@ -361,67 +294,64 @@ export class HighlightLayer {
     this.clearGroup(this.recommendationsGroup);
     this.clearGroup(this.opponentArrowGroup);
     this.planeGeometry.dispose();
-    this.dotGeometry.dispose();
-    this.captureGeometry.dispose();
+    this.targetRingGeometry.dispose();
+    this.targetGlowGeometry.dispose();
     this.selectedGeometry.dispose();
     this.checkGeometry.dispose();
     this.previewGeometry.dispose();
-    this.linkRingGeometry.dispose();
     this.lastMoveMaterial.dispose();
     this.selectedMaterial.dispose();
-    this.dotMaterial.dispose();
-    this.captureMaterial.dispose();
+    this.targetMaterial.dispose();
+    this.targetCaptureMaterial.dispose();
+    this.targetGlowMaterial.dispose();
     this.checkMaterial.dispose();
     this.previewMaterial.dispose();
     this.hoverMaterial.dispose();
     this.hoverLineMaterial.dispose();
-    this.threatLineMaterial.dispose();
-    this.protectLineMaterial.dispose();
-    this.captureLineMaterial.dispose();
-    this.bestRecommendationMaterial.dispose();
-    this.alternativeRecommendationMaterial.dispose();
-    this.ghostThreatMaterial.dispose();
-    this.ghostProtectMaterial.dispose();
-    this.ghostCaptureMaterial.dispose();
-    this.ghostThreatRingMaterial.dispose();
-    this.ghostProtectRingMaterial.dispose();
-    this.ghostCaptureRingMaterial.dispose();
+    this.threatArrowMaterial.dispose();
+    this.protectArrowMaterial.dispose();
+    this.captureArrowMaterial.dispose();
+    this.recommendationArrowMaterial.dispose();
     this.opponentArrowMaterial.dispose();
-    this.opponentArrowRingMaterial.dispose();
+    this.ghostThreatLineMaterial.dispose();
+    this.ghostProtectLineMaterial.dispose();
+    this.ghostCaptureLineMaterial.dispose();
+    this.ghostThreatConeMaterial.dispose();
+    this.ghostProtectConeMaterial.dispose();
+    this.ghostCaptureConeMaterial.dispose();
   }
 
   private clear(): void {
     for (const child of [...this.marks.children]) {
-      const object = child as THREE.Mesh;
-      if (object.userData.ownedGeometry && object.geometry) {
-        object.geometry.dispose();
-      }
+      this.disposeGeometry(child);
       this.marks.remove(child);
     }
   }
 
   private clearGroup(group: THREE.Group): void {
     for (const child of [...group.children]) {
-      const object = child as THREE.Mesh;
-      if (object.userData.ownedGeometry && object.geometry) {
-        object.geometry.dispose();
-      }
+      this.disposeGeometry(child);
       group.remove(child);
+    }
+  }
+
+  private disposeGeometry(object: THREE.Object3D): void {
+    const mesh = object as THREE.Mesh;
+    if (mesh.userData.ownedGeometry && mesh.geometry) {
+      mesh.geometry.dispose();
     }
   }
 
   private buildHover(): void {
     for (const child of [...this.marks.children]) {
       if (child.userData.kind !== 'hover') continue;
-      if (child.userData.ownedGeometry && child instanceof THREE.Line) {
-        child.geometry.dispose();
-      }
+      this.disposeGeometry(child);
       this.marks.remove(child);
     }
     if (!this.hovered) return;
 
-    this.addPlane(this.hovered, this.hoverMaterial, 0.02, 6);
-    const point = squareToWorld(this.hovered, 0.024);
+    this.addPlane(this.hovered, this.hoverMaterial, 0.028, 6);
+    const point = squareToWorld(this.hovered, 0.032);
     const half = 0.48;
     const points = [
       new THREE.Vector3(point.x - half, point.y, point.z - half),
@@ -454,74 +384,130 @@ export class HighlightLayer {
     renderOrder: number,
   ): THREE.Mesh {
     const mesh = new THREE.Mesh(geometry, material);
-    const point = squareToWorld(square, y);
-    mesh.position.copy(point);
+    mesh.position.copy(squareToWorld(square, y));
     mesh.renderOrder = renderOrder;
     this.marks.add(mesh);
     return mesh;
   }
 
-  private addCurve(
+  /**
+   * 直线箭头：圆柱杆 + 圆锥头。
+   * 不再使用曲线和终点圆环，减少画面上的“蜘蛛网”。
+   */
+  private addArrow(
     group: THREE.Group,
     from: Square,
     to: Square,
-    material: THREE.Material,
+    material: THREE.MeshBasicMaterial,
     radius: number,
-    height: number,
-    renderOrder: number,
-  ): void {
-    const start = squareToWorld(from, 0.08);
-    const end = squareToWorld(to, 0.08);
-    const middle = start.clone().add(end).multiplyScalar(0.5);
-    middle.y += height;
-    const curve = new THREE.QuadraticBezierCurve3(start, middle, end);
-    const geometry = new THREE.TubeGeometry(curve, 20, radius, 6, false);
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.renderOrder = renderOrder;
-    mesh.raycast = () => {};
-    mesh.userData.ownedGeometry = true;
-    group.add(mesh);
-  }
-
-  private addRingTo(
-    group: THREE.Group,
-    square: Square,
-    material: THREE.Material,
+    headRadius: number,
+    headLength: number,
     y: number,
     renderOrder: number,
   ): void {
-    const mesh = new THREE.Mesh(this.linkRingGeometry, material);
-    mesh.position.copy(squareToWorld(square, y));
-    mesh.renderOrder = renderOrder;
-    mesh.raycast = () => {};
-    group.add(mesh);
+    const start = squareToWorld(from, y);
+    const end = squareToWorld(to, y);
+    const direction = new THREE.Vector3(
+      end.x - start.x,
+      0,
+      end.z - start.z,
+    );
+    const length = direction.length();
+    if (length < 0.001) return;
+    direction.normalize();
+
+    const shaftLength = Math.max(0.02, length - headLength);
+    const midpoint = start.clone().addScaledVector(direction, shaftLength / 2);
+    const shaftGeometry = new THREE.CylinderGeometry(
+      radius,
+      radius,
+      shaftLength,
+      6,
+    );
+    const shaft = new THREE.Mesh(shaftGeometry, material);
+    shaft.position.copy(midpoint);
+    shaft.quaternion.setFromUnitVectors(
+      new THREE.Vector3(0, 1, 0),
+      direction,
+    );
+    shaft.renderOrder = renderOrder;
+    shaft.raycast = () => {};
+    shaft.userData.ownedGeometry = true;
+    group.add(shaft);
+
+    const coneGeometry = new THREE.ConeGeometry(headRadius, headLength, 8);
+    const cone = new THREE.Mesh(coneGeometry, material);
+    cone.position.copy(end).addScaledVector(direction, -headLength / 2);
+    cone.quaternion.setFromUnitVectors(
+      new THREE.Vector3(0, 1, 0),
+      direction,
+    );
+    cone.renderOrder = renderOrder;
+    cone.raycast = () => {};
+    cone.userData.ownedGeometry = true;
+    group.add(cone);
   }
 
-  private addDashedCurve(
+  /** 虚影箭头：虚线杆 + 实心锥头；不会用曲线。 */
+  private addDashedArrow(
     group: THREE.Group,
     from: Square,
     to: Square,
-    material: THREE.LineDashedMaterial,
-    height: number,
+    lineMaterial: THREE.LineDashedMaterial,
+    coneMaterial: THREE.MeshBasicMaterial,
+    y: number,
     renderOrder: number,
   ): void {
-    const start = squareToWorld(from, 0.09);
-    const end = squareToWorld(to, 0.09);
-    const middle = start.clone().add(end).multiplyScalar(0.5);
-    middle.y += height;
-    const curve = new THREE.QuadraticBezierCurve3(start, middle, end);
-    const geometry = new THREE.BufferGeometry().setFromPoints(
-      curve.getPoints(28),
+    const start = squareToWorld(from, y);
+    const end = squareToWorld(to, y);
+    const direction = new THREE.Vector3(
+      end.x - start.x,
+      0,
+      end.z - start.z,
     );
-    const line = new THREE.Line(geometry, material);
+    const length = direction.length();
+    if (length < 0.001) return;
+    direction.normalize();
+
+    const headLength = 0.18;
+    const shaftEnd = end.clone().addScaledVector(direction, -headLength);
+    const lineGeometry = new THREE.BufferGeometry().setFromPoints([
+      start,
+      shaftEnd,
+    ]);
+    const line = new THREE.Line(lineGeometry, lineMaterial);
     line.computeLineDistances();
     line.renderOrder = renderOrder;
     line.raycast = () => {};
     line.userData.ownedGeometry = true;
     group.add(line);
+
+    const coneGeometry = new THREE.ConeGeometry(0.05, headLength, 8);
+    const cone = new THREE.Mesh(coneGeometry, coneMaterial);
+    cone.position.copy(end).addScaledVector(direction, -headLength / 2);
+    cone.quaternion.setFromUnitVectors(
+      new THREE.Vector3(0, 1, 0),
+      direction,
+    );
+    cone.renderOrder = renderOrder;
+    cone.raycast = () => {};
+    cone.userData.ownedGeometry = true;
+    group.add(cone);
   }
 
-  private lineMaterial(color: number, opacity: number): THREE.MeshBasicMaterial {
+  private flatMaterial(color: number, opacity: number): THREE.MeshBasicMaterial {
+    return new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity,
+      depthWrite: false,
+      toneMapped: false,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+    });
+  }
+
+  private arrowMaterial(color: number, opacity: number): THREE.MeshBasicMaterial {
     return new THREE.MeshBasicMaterial({
       color,
       transparent: true,
@@ -543,8 +529,8 @@ export class HighlightLayer {
       depthTest: false,
       depthWrite: false,
       toneMapped: false,
-      dashSize: 0.12,
-      gapSize: 0.075,
+      dashSize: 0.14,
+      gapSize: 0.08,
     });
   }
 
@@ -554,16 +540,25 @@ export class HighlightLayer {
     return geometry;
   }
 
-  private flatCircle(radius: number): THREE.CircleGeometry {
-    const geometry = new THREE.CircleGeometry(radius, 28);
-    geometry.rotateX(-Math.PI / 2);
-    return geometry;
-  }
-
   private flatRing(inner: number, outer: number): THREE.RingGeometry {
     const geometry = new THREE.RingGeometry(inner, outer, 36);
     geometry.rotateX(-Math.PI / 2);
     return geometry;
   }
-}
 
+  /**
+   * 四段 RingGeometry 在 thetaStart=45° 时形成“方形边框”：
+   * 不再是圆环，而是像发光地砖的边缘。
+   */
+  private flatSquareRing(inner: number, outer: number): THREE.BufferGeometry {
+    const geometry = new THREE.RingGeometry(
+      inner,
+      outer,
+      4,
+      1,
+      Math.PI / 4,
+    );
+    geometry.rotateX(-Math.PI / 2);
+    return geometry;
+  }
+}

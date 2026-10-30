@@ -22,6 +22,7 @@ export type InputKind = 'mouse' | 'touch';
 export interface BoardSceneCallbacks {
   onSquareClick: (square: Square, input: InputKind) => void;
   onHoverSquare: (square: Square | null) => void;
+  onContextLost?: (message: string) => void;
 }
 
 interface Tween {
@@ -30,6 +31,7 @@ interface Tween {
   delay: number;
   update: (progress: number) => void;
   done?: () => void;
+  cancel?: () => void;
 }
 
 interface CameraTween {
@@ -78,6 +80,7 @@ export class BoardScene {
   private initialSideApplied = false;
   private raf = 0;
   private disposed = false;
+  private contextLost = false;
   private pointerStart: { x: number; y: number; time: number; id: number } | null = null;
   private cameraTween: CameraTween | null = null;
 
@@ -98,7 +101,7 @@ export class BoardScene {
       alpha: true,
       powerPreference: 'high-performance',
     });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.6));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -121,6 +124,7 @@ export class BoardScene {
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.setupControls();
     this.setupEvents();
+    this.setupContextLoss();
     this.resize();
 
     this.resizeObserver = new ResizeObserver(() => this.resize());
@@ -252,8 +256,16 @@ export class BoardScene {
       onComplete();
       return;
     }
+    if (this.contextLost) {
+      onComplete();
+      return;
+    }
     if (this.animating) {
+      // 联机/快速连点会打断上一段动画。必须先取消旧 tween，
+      // 否则旧回调仍在改位置/透明度，形成“残影 + 闪烁”。
+      this.cancelTweens();
       this.animating = false;
+      this.setInteractive(true);
       this.applySnapshot(nextSnapshot);
       onComplete();
       return;
@@ -269,6 +281,9 @@ export class BoardScene {
     }
 
     this.clearPreviewVisuals();
+    // 落子后鼠标可能还停在目标格；清掉悬停底部光，避免被误认为上一步残光。
+    this.highlights.setHover(null);
+    this.hovered = null;
     this.highlights.setRecommendations([]);
     this.highlights.setConnections([]);
     this.highlights.setPreviewConnections([]);
@@ -298,16 +313,41 @@ export class BoardScene {
     const capturedStartPosition = captured?.position.clone();
     const capturedStartQuaternion = captured?.quaternion.clone();
     const capturedMaterials: THREE.Material[] = [];
+    const capturedOriginals: Array<{
+      mesh: THREE.Mesh;
+      material: THREE.Material | THREE.Material[];
+    }> = [];
+    const hiddenOutlines: THREE.Mesh[] = [];
+    let captureCleaned = false;
+
+    const cleanupCapture = (restore: boolean): void => {
+      if (captureCleaned) return;
+      captureCleaned = true;
+      if (restore) {
+        for (const entry of capturedOriginals) {
+          entry.mesh.material = entry.material;
+        }
+        for (const outline of hiddenOutlines) {
+          outline.visible = true;
+        }
+        if (captured) captured.visible = true;
+      }
+      for (const material of capturedMaterials) material.dispose();
+      capturedMaterials.length = 0;
+    };
+
     if (captured) {
       captured.castShadow = false;
       captured.traverse((object) => {
         if (!(object instanceof THREE.Mesh)) return;
         if (object.userData.isOutline) {
+          hiddenOutlines.push(object);
           object.visible = false;
           return;
         }
-        const material = object.material as THREE.Material;
-        const clone = material.clone();
+        const material = object.material;
+        capturedOriginals.push({ mesh: object, material });
+        const clone = (material as THREE.Material).clone();
         clone.transparent = true;
         clone.depthWrite = false;
         object.material = clone;
@@ -371,7 +411,7 @@ export class BoardScene {
         if (this.disposed) return;
         if (captured && capturedSquare) {
           this.removePieceAt(capturedSquare);
-          capturedMaterials.forEach((material) => material.dispose());
+          cleanupCapture(false);
         }
         if (!isCapture) sound.playPlace();
 
@@ -381,6 +421,10 @@ export class BoardScene {
         mover.position.copy(toPosition);
         mover.scale.setScalar(1);
         mover.quaternion.identity();
+        // 黑马统一转 180°，让马头朝白方；白方保持模型默认朝向。
+        if (record.piece === 'n' && record.color === 'b') {
+          mover.rotation.y = Math.PI;
+        }
 
         if (rookMesh && rook) {
           this.pieceMeshes.delete(rook.from);
@@ -394,6 +438,7 @@ export class BoardScene {
         this.applySnapshot(nextSnapshot);
         onComplete();
       },
+      cancel: () => cleanupCapture(true),
     });
   }
 
@@ -401,6 +446,9 @@ export class BoardScene {
     if (this.disposed) return;
     this.disposed = true;
     cancelAnimationFrame(this.raf);
+    this.raf = 0;
+    this.cancelTweens();
+    this.clock.stop();
     this.resizeObserver.disconnect();
     window.removeEventListener('resize', this.resize);
 
@@ -410,6 +458,11 @@ export class BoardScene {
     element.removeEventListener('pointermove', this.onPointerMove);
     element.removeEventListener('pointerleave', this.onPointerLeave);
     element.removeEventListener('contextmenu', this.onContextMenu);
+    element.removeEventListener('webglcontextlost', this.onWebGLContextLost);
+    element.removeEventListener(
+      'webglcontextrestored',
+      this.onWebGLContextRestored,
+    );
 
     this.controls.dispose();
     this.highlights.dispose();
@@ -418,7 +471,15 @@ export class BoardScene {
     this.ghostGroup.clear();
     this.pieceMeshes.clear();
     this.scene.clear();
+    this.renderer.renderLists.dispose();
     this.renderer.dispose();
+    // 反复切换 2D/3D 时，只 dispose 不一定立刻释放浏览器 WebGL 上下文；
+    // 显式丢失上下文，避免“Too many active WebGL contexts”。
+    try {
+      this.renderer.forceContextLoss();
+    } catch {
+      // 某些浏览器已经丢失上下文时 forceContextLoss 会抛错，忽略即可。
+    }
     element.remove();
 
     if (import.meta.env.DEV) {
@@ -478,6 +539,37 @@ export class BoardScene {
     element.addEventListener('pointerleave', this.onPointerLeave);
     element.addEventListener('contextmenu', this.onContextMenu);
   }
+
+  /**
+   * WebGL 上下文丢失是移动端/老显卡最常见的“整块棋盘突然变纯色”原因。
+   * 这里必须阻止默认行为、停止 RAF、清掉未完成动画，然后通知 React 回退到 2D。
+   */
+  private setupContextLoss(): void {
+    const element = this.renderer.domElement;
+    element.addEventListener('webglcontextlost', this.onWebGLContextLost);
+    element.addEventListener(
+      'webglcontextrestored',
+      this.onWebGLContextRestored,
+    );
+  }
+
+  private readonly onWebGLContextLost = (event: Event): void => {
+    event.preventDefault();
+    if (this.disposed || this.contextLost) return;
+    this.contextLost = true;
+    cancelAnimationFrame(this.raf);
+    this.raf = 0;
+    this.cancelTweens();
+    this.animating = false;
+    this.callbacks.onContextLost?.('WebGL 上下文丢失，已切换到 2D 棋盘。');
+  };
+
+  private readonly onWebGLContextRestored = (): void => {
+    if (this.disposed) return;
+    this.contextLost = false;
+    this.clock.start();
+    this.loop();
+  };
 
   private readonly onContextMenu = (event: Event): void => {
     event.preventDefault();
@@ -569,7 +661,8 @@ export class BoardScene {
         this.pieceMeshes.set(square, mesh);
       }
       mesh.position.copy(squareToWorld(square));
-      mesh.rotation.y = 0;
+      mesh.rotation.y =
+        info.type === 'n' && info.color === 'b' ? Math.PI : 0;
       mesh.visible = true;
       mesh.scale.setScalar(1);
     }
@@ -645,7 +738,7 @@ export class BoardScene {
       squareToWorld(preview.to, preview.capturedSquare ? 0.16 : 0.03),
     );
     ghost.scale.setScalar(0.94);
-    ghost.rotation.y = 0;
+    ghost.rotation.y = preview.color === 'b' ? Math.PI : 0;
     ghost.renderOrder = 10;
     ghost.raycast = () => {};
     this.ghostGroup.add(ghost);
@@ -717,8 +810,16 @@ export class BoardScene {
     }
   }
 
+  private cancelTweens(): void {
+    for (const tween of this.tweens) {
+      tween.cancel?.();
+    }
+    this.tweens.length = 0;
+    this.animating = false;
+  }
+
   private readonly loop = (): void => {
-    if (this.disposed) return;
+    if (this.disposed || this.contextLost) return;
     this.raf = requestAnimationFrame(this.loop);
     // Clock 返回秒；动画时长全部按毫秒写，这里统一换算。
     const deltaMs = Math.min(this.clock.getDelta() * 1000, 50);
@@ -740,6 +841,6 @@ export class BoardScene {
     this.renderer.setSize(width, height, false);
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.6));
   };
 }
