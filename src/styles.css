@@ -1414,6 +1414,13 @@ h1 {
     width: 100%;
   }
 
+  /* 手机上按钮靠左，菜单改成左对齐才会向右展开，避免左侧被裁掉。 */
+  .display-menu {
+    left: 0;
+    right: auto;
+    width: min(268px, calc(100vw - 80px));
+  }
+
   .board-frame {
     padding: 9px;
     border-radius: 16px;
