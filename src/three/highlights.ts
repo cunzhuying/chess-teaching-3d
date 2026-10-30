@@ -30,7 +30,6 @@ export class HighlightLayer {
 
   private readonly planeGeometry: THREE.PlaneGeometry;
   private readonly targetRingGeometry: THREE.BufferGeometry;
-  private readonly targetGlowGeometry: THREE.BufferGeometry;
   private readonly selectedGeometry: THREE.RingGeometry;
   private readonly checkGeometry: THREE.RingGeometry;
   private readonly previewGeometry: THREE.RingGeometry;
@@ -39,8 +38,6 @@ export class HighlightLayer {
   private readonly selectedMaterial: THREE.MeshBasicMaterial;
   private readonly targetMaterial: THREE.MeshBasicMaterial;
   private readonly targetCaptureMaterial: THREE.MeshBasicMaterial;
-  private readonly targetGlowMaterial: THREE.MeshBasicMaterial;
-  private readonly targetCaptureGlowMaterial: THREE.MeshBasicMaterial;
   private readonly checkMaterial: THREE.MeshBasicMaterial;
   private readonly previewMaterial: THREE.MeshBasicMaterial;
   private readonly hoverMaterial: THREE.MeshBasicMaterial;
@@ -78,9 +75,8 @@ export class HighlightLayer {
     this.opponentArrowGroup.renderOrder = 7;
 
     this.planeGeometry = this.flatPlane();
-    // 可落子点用圆形 RingGeometry；外圈是第二道圆环，内圈是清晰主环。
+    // 可落子点只保留一圈清晰的圆形 RingGeometry。
     this.targetRingGeometry = this.flatRing(0.28, 0.35);
-    this.targetGlowGeometry = this.flatRing(0.37, 0.45);
     this.selectedGeometry = this.flatRing(0.41, 0.48);
     this.checkGeometry = this.flatRing(0.36, 0.47);
     this.previewGeometry = this.flatRing(0.43, 0.5);
@@ -91,8 +87,6 @@ export class HighlightLayer {
     this.selectedMaterial = this.flatMaterial(COLORS.selection, 1, true);
     this.targetMaterial = this.flatMaterial(COLORS.goldBright, 1, true);
     this.targetCaptureMaterial = this.flatMaterial(COLORS.danger, 1, true);
-    this.targetGlowMaterial = this.flatMaterial(COLORS.goldBright, 1, true);
-    this.targetCaptureGlowMaterial = this.flatMaterial(COLORS.danger, 1, true);
     this.checkMaterial = this.flatMaterial(COLORS.danger, 1, true);
     this.previewMaterial = this.flatMaterial(COLORS.goldBright, 1, true);
     this.hoverMaterial = this.flatMaterial(COLORS.selection, 0.07);
@@ -229,16 +223,7 @@ export class HighlightLayer {
     }
 
     for (const [square, move] of targets) {
-      // 圆形双层环：外圈亮金 + 内圈清晰圆环。
-      this.addMesh(
-        this.targetGlowGeometry,
-        move.isCapture
-          ? this.targetCaptureGlowMaterial
-          : this.targetGlowMaterial,
-        square,
-        0.018,
-        3,
-      );
+      // 只保留一圈清晰的圆形落子环。
       this.addMesh(
         this.targetRingGeometry,
         move.isCapture ? this.targetCaptureMaterial : this.targetMaterial,
@@ -298,7 +283,6 @@ export class HighlightLayer {
     this.clearGroup(this.opponentArrowGroup);
     this.planeGeometry.dispose();
     this.targetRingGeometry.dispose();
-    this.targetGlowGeometry.dispose();
     this.selectedGeometry.dispose();
     this.checkGeometry.dispose();
     this.previewGeometry.dispose();
@@ -306,8 +290,6 @@ export class HighlightLayer {
     this.selectedMaterial.dispose();
     this.targetMaterial.dispose();
     this.targetCaptureMaterial.dispose();
-    this.targetGlowMaterial.dispose();
-    this.targetCaptureGlowMaterial.dispose();
     this.checkMaterial.dispose();
     this.previewMaterial.dispose();
     this.hoverMaterial.dispose();
