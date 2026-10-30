@@ -264,22 +264,6 @@ h1 {
   background: rgba(216, 168, 78, 0.18);
 }
 
-.preview-hint {
-  position: absolute;
-  bottom: 12px;
-  left: 12px;
-  z-index: 6;
-  max-width: calc(100% - 220px);
-  padding: 8px 11px;
-  border: 1px solid rgba(216, 168, 78, 0.35);
-  border-radius: 9px;
-  background: rgba(20, 15, 11, 0.84);
-  color: #f0dfc0;
-  font-size: 12px;
-  line-height: 1.4;
-  backdrop-filter: blur(6px);
-}
-
 .board-fallback {
   position: absolute;
   inset: 0;
@@ -1449,12 +1433,6 @@ h1 {
 
   .history {
     max-height: 180px;
-  }
-
-  .preview-hint {
-    right: 12px;
-    bottom: 54px;
-    max-width: none;
   }
 
   .dialog {

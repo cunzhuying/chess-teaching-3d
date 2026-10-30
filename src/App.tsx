@@ -145,7 +145,6 @@ export default function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('3d');
   const [viewSide, setViewSide] = useState<Side>('w');
   const [preview, setPreview] = useState<MovePreview | null>(null);
-  const [inputMode, setInputMode] = useState<InputKind>('mouse');
   const [animating, setAnimating] = useState(false);
   const [promotion, setPromotion] = useState<PromotionState | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -1137,7 +1136,6 @@ export default function App() {
   }
 
   function handleSquareClick(square: Square, input: InputKind): void {
-    setInputMode(input);
     if (snap.result || promotion || busy) return;
     const piece = pieces.get(square);
 
@@ -1204,7 +1202,6 @@ export default function App() {
       if (preview) setPreview(null);
       return;
     }
-    setInputMode('mouse');
     if (!selected || !square || !targets.has(square)) {
       setPreview(null);
       return;
@@ -1484,12 +1481,6 @@ export default function App() {
             {message && (
               <div className="toast" role="status" aria-live="polite">
                 {message}
-              </div>
-            )}
-
-            {viewMode === '3d' && preview && inputMode === 'touch' && !busy && (
-              <div className="preview-hint">
-                已预览 {previewLabel} · 再点一次 {preview.to} 确认
               </div>
             )}
           </div>
