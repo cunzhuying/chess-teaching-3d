@@ -8,6 +8,7 @@ import {
   pieceValueLabel,
   sideNameZh,
 } from './domain/notation';
+import { buildPgn, pgnFileName, resultTag } from './domain/pgn';
 import type {
   LegalMove,
   MovePreview,
@@ -36,6 +37,7 @@ import { strategicNotes } from './analysis/strategy';
 import type { Recommendation, ThreatInfo } from './domain/types';
 import { Board2D } from './ui/Board2D';
 import { BoardCanvas, type BoardCanvasHandle } from './ui/BoardCanvas';
+import { downloadTextFile } from './ui/download';
 import { PIECE_GLYPH } from './ui/pieceGlyphs';
 import {
   PeerSession,
@@ -1317,6 +1319,40 @@ export default function App() {
     refresh();
   }
 
+  /**
+   * 导出当前对局的 PGN：白/黑方名称按对局模式生成，日期取本机时间，
+   * 结果取棋局状态（将死 / 和棋 / 未结束为“*”）。
+   */
+  function handleExportPgn(): void {
+    if (records.length === 0) {
+      setMessage('还没有走子，暂时没有棋谱可导出');
+      return;
+    }
+
+    let white = '玩家 1';
+    let black = '玩家 2';
+    if (mode === 'ai') {
+      const aiName = `教学 AI · ${LEVELS[level].label}`;
+      white = playerColor === 'w' ? '玩家' : aiName;
+      black = playerColor === 'w' ? aiName : '玩家';
+    } else if (mode === 'online') {
+      white = playerColor === 'w' ? '我方' : '对手';
+      black = playerColor === 'w' ? '对手' : '我方';
+    }
+
+    const now = new Date();
+    const fileName = pgnFileName(now);
+    const text = buildPgn(records, {
+      white,
+      black,
+      date: now,
+      result: resultTag(snap.result),
+    });
+
+    downloadTextFile(fileName, text, 'application/x-chess-pgn');
+    setMessage(`已导出棋谱：${fileName}`);
+  }
+
   function handleFlipSide(): void {
     setViewSide((value) => (value === 'w' ? 'b' : 'w'));
     setPreview(null);
@@ -1978,6 +2014,15 @@ export default function App() {
                 }
               >
                 重开
+              </button>
+              <button
+                type="button"
+                className="btn ghost"
+                onClick={handleExportPgn}
+                disabled={records.length === 0}
+                title="导出标准 PGN 棋谱文件"
+              >
+                导出棋谱
               </button>
             </div>
           </section>

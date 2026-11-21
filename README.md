@@ -11,7 +11,7 @@
   <img src="https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white" alt="TypeScript" />
   <img src="https://img.shields.io/badge/Three.js-r186-000000?logo=three.js&logoColor=white" alt="Three.js" />
   <img src="https://img.shields.io/badge/PeerJS-P2P-FF6B6B" alt="PeerJS" />
-  <img src="https://img.shields.io/badge/tests-68%20passing-2ea44f" alt="Tests" />
+  <img src="https://img.shields.io/badge/tests-76%20passing-2ea44f" alt="Tests" />
 </p>
 
 <p align="center">
@@ -37,8 +37,9 @@
 | 🤖 **教学 AI** | 四档难度、执白/执黑、评估条、AI 每步解析 |
 | 🌱 **大局观** | 占据中心、子力出动、王的安全、空间优势，不只盯着吃子 |
 | 🌐 **P2P 联机** | 6 位房间号，PeerJS DataChannel，不需要游戏后端 |
+| 📥 **棋谱导出** | 一键把当前对局导出为标准 PGN，含白/黑方、日期、结果 |
 | 🧱 **3D 木质棋盘** | GLB 棋子 + 程序化木纹 + 吃子倒地 + Web Audio 音效 |
-| ✅ **规则可靠** | chess.js 唯一规则真源，68 项测试 + 深度 perft |
+| ✅ **规则可靠** | chess.js 唯一规则真源，76 项测试 + 深度 perft |
 
 ## 在线体验
 
@@ -59,7 +60,7 @@
 ```bash
 pnpm install
 pnpm dev        # http://127.0.0.1:5173
-pnpm test       # 68 项规则 / 记谱 / 控制器 / 引擎 / 攻击图测试
+pnpm test       # 76 项规则 / 记谱 / PGN / 控制器 / 引擎 / 攻击图测试
 pnpm perft      # 深度 perft：初始局面 197,281 + Kiwipete 97,862
 pnpm build      # 类型检查 + 生产构建
 ```
@@ -202,6 +203,18 @@ pnpm build      # 类型检查 + 生产构建
 
 候选推演使用独立 Worker + 260ms 防抖 + 缓存，不会阻塞棋盘操作。
 
+## 棋谱导出：标准 PGN
+
+走子历史区新增“导出棋谱”按钮。点击后把当前对局导出为标准 PGN 文本并下载：
+
+- 标签对：`Event`、`Site`、`Date`、`Round`、`White`、`Black`、`Result`；
+- 白/黑方名称按模式生成：双人同屏为“玩家 1 / 玩家 2”，教学 AI 为“玩家 / 教学 AI · 难度”，联机为“我方 / 对手”；
+- 结果从 `GameController` 的对局状态读取：白胜 `1-0`、黑胜 `0-1`、和棋 `1/2-1/2`、未结束 `*`；
+- movetext 直接使用 chess.js 的 SAN，支持从黑方接续的 `1...` 编号，每回合单独一行；
+- 文件名为 `chess-YYYYMMDD-HHmm.pgn`，同一天多次导出不会互相覆盖。
+
+实现位于 `src/domain/pgn.ts` 与 `src/ui/download.ts`，纯前端 Blob 下载，不引入新依赖；对应测试在 `tests/pgn.test.ts`。
+
 ## 联机对战：PeerJS P2P（已实现）
 
 ![PeerJS 联机：房主房间号与已连接状态](docs/online-host.png)
@@ -269,7 +282,7 @@ pnpm build      # 类型检查 + 生产构建
 chess.js 1.4 是唯一规则真源：
 
 - 王车易位、吃过路兵、兵升变、将军、将死、逼和、三次重复、五十回合、子力不足。
-- **68 项测试**：规则、记谱、控制器、预览语义、引擎合法性/一步杀/MultiPV、多步推演/送子识别、攻击图、SEE、连线数量、推荐文案、虚影局面、联机消息协议。
+- **76 项测试**：规则、记谱、PGN 导出、控制器、预览语义、引擎合法性/一步杀/MultiPV、多步推演/送子识别、攻击图、SEE、连线数量、推荐文案、虚影局面、联机消息协议。
 - **深度 perft**：`pnpm perft` 验证初始局面 197,281、Kiwipete 97,862。
 - 手工验证：选中己方/敌方、红/金/绿线、最多 3 条、推荐箭头呼吸、推荐预览、AI 执白/执黑。
 
