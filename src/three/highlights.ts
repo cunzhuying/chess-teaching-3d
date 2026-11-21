@@ -14,8 +14,8 @@ import { squareToWorld } from './square';
  * 棋盘信息层。这里只做“显示”，所有几何体和材质要么共享、要么在重建时 dispose。
  *
  * 视觉原则：
- * - 合法落子 = 底部发光方框，不再用圆点；
- * - 关系线 = 一条直线箭头，红=威胁，绿=保护，金=可吃；
+ * - 合法落子 = 单圈圆形发光环，不再用方框；
+ * - 关系线 = 一条立体的弧形箭头，红=威胁，绿=保护，金=可吃；
  * - 推荐 = 只画最佳一条金箭头，备选留在右侧面板；
  * - 虚影 = 虚线箭头 + 锥形箭头头部。
  */
@@ -185,7 +185,7 @@ export class HighlightLayer {
     });
   }
 
-  /** 对手最可能应招：半透明直箭头，只一条。 */
+  /** 对手最可能应招：半透明弧形箭头，只一条。 */
   setOpponentArrow(arrow: { from: Square; to: Square } | null): void {
     this.clearGroup(this.opponentArrowGroup);
     if (!arrow) return;
@@ -377,8 +377,7 @@ export class HighlightLayer {
   }
 
   /**
-   * 直线箭头：圆柱杆 + 圆锥头。
-   * 不再使用曲线和终点圆环，减少画面上的“蜘蛛网”。
+   * 立体弧形箭头：抬高的管状弧线 + 切线方向的圆锥头。
    */
   private addArrow(
     group: THREE.Group,
@@ -391,42 +390,25 @@ export class HighlightLayer {
     y: number,
     renderOrder: number,
   ): void {
-    const start = squareToWorld(from, y);
-    const end = squareToWorld(to, y);
-    const direction = new THREE.Vector3(
-      end.x - start.x,
-      0,
-      end.z - start.z,
-    );
-    const length = direction.length();
-    if (length < 0.001) return;
-    direction.normalize();
+    const arc = this.arrowCurve(from, to, y);
+    if (!arc) return;
+    const { curve, end } = arc;
 
-    const shaftLength = Math.max(0.02, length - headLength);
-    const midpoint = start.clone().addScaledVector(direction, shaftLength / 2);
-    const shaftGeometry = new THREE.CylinderGeometry(
-      radius,
-      radius,
-      shaftLength,
-      6,
-    );
+    // 用抬高的二次贝塞尔曲线生成有厚度的管状弧线，而不是贴着棋盘的直线。
+    const shaftGeometry = new THREE.TubeGeometry(curve, 36, radius, 8, false);
     const shaft = new THREE.Mesh(shaftGeometry, material);
-    shaft.position.copy(midpoint);
-    shaft.quaternion.setFromUnitVectors(
-      new THREE.Vector3(0, 1, 0),
-      direction,
-    );
     shaft.renderOrder = renderOrder;
     shaft.raycast = () => {};
     shaft.userData.ownedGeometry = true;
     group.add(shaft);
 
+    const tangent = curve.getTangentAt(1).normalize();
     const coneGeometry = new THREE.ConeGeometry(headRadius, headLength, 8);
     const cone = new THREE.Mesh(coneGeometry, material);
-    cone.position.copy(end).addScaledVector(direction, -headLength / 2);
+    cone.position.copy(end).addScaledVector(tangent, -headLength / 2);
     cone.quaternion.setFromUnitVectors(
       new THREE.Vector3(0, 1, 0),
-      direction,
+      tangent,
     );
     cone.renderOrder = renderOrder;
     cone.raycast = () => {};
@@ -434,7 +416,7 @@ export class HighlightLayer {
     group.add(cone);
   }
 
-  /** 虚影箭头：虚线杆 + 实心锥头；不会用曲线。 */
+  /** 虚影箭头：沿同一弧线采样成虚线，锥头贴住终点切线。 */
   private addDashedArrow(
     group: THREE.Group,
     from: Square,
@@ -444,23 +426,17 @@ export class HighlightLayer {
     y: number,
     renderOrder: number,
   ): void {
-    const start = squareToWorld(from, y);
-    const end = squareToWorld(to, y);
-    const direction = new THREE.Vector3(
-      end.x - start.x,
-      0,
-      end.z - start.z,
-    );
-    const length = direction.length();
-    if (length < 0.001) return;
-    direction.normalize();
+    const arc = this.arrowCurve(from, to, y);
+    if (!arc) return;
+    const { curve, end } = arc;
 
     const headLength = 0.18;
-    const shaftEnd = end.clone().addScaledVector(direction, -headLength);
-    const lineGeometry = new THREE.BufferGeometry().setFromPoints([
-      start,
-      shaftEnd,
-    ]);
+    const points = curve
+      .getSpacedPoints(48)
+      .filter((point) => point.distanceTo(end) > headLength * 0.9);
+    const lineGeometry = new THREE.BufferGeometry().setFromPoints(
+      points.length >= 2 ? points : [curve.getPointAt(0), curve.getPointAt(0.5)],
+    );
     const line = new THREE.Line(lineGeometry, lineMaterial);
     line.computeLineDistances();
     line.renderOrder = renderOrder;
@@ -468,17 +444,48 @@ export class HighlightLayer {
     line.userData.ownedGeometry = true;
     group.add(line);
 
+    const tangent = curve.getTangentAt(1).normalize();
     const coneGeometry = new THREE.ConeGeometry(0.05, headLength, 8);
     const cone = new THREE.Mesh(coneGeometry, coneMaterial);
-    cone.position.copy(end).addScaledVector(direction, -headLength / 2);
+    cone.position.copy(end).addScaledVector(tangent, -headLength / 2);
     cone.quaternion.setFromUnitVectors(
       new THREE.Vector3(0, 1, 0),
-      direction,
+      tangent,
     );
     cone.renderOrder = renderOrder;
     cone.raycast = () => {};
     cone.userData.ownedGeometry = true;
     group.add(cone);
+  }
+
+  /**
+   * 起点/终点抬离棋盘，控制点再抬高，形成从上方跨过去的立体弧度。
+   * 距离越长，拱得越高，但仍然限制在合理高度内。
+   */
+  private arrowCurve(
+    from: Square,
+    to: Square,
+    y: number,
+  ): {
+    curve: THREE.QuadraticBezierCurve3;
+    start: THREE.Vector3;
+    end: THREE.Vector3;
+  } | null {
+    const start = squareToWorld(from, y + 0.16);
+    const end = squareToWorld(to, y + 0.06);
+    const distance = Math.hypot(end.x - start.x, end.z - start.z);
+    if (distance < 0.001) return null;
+    const peak = Math.min(0.9, 0.26 + distance * 0.11);
+    const control = new THREE.Vector3(
+      (start.x + end.x) / 2,
+      Math.max(start.y, end.y) + peak * 2,
+      (start.z + end.z) / 2,
+    );
+    return {
+      curve: new THREE.QuadraticBezierCurve3(start, control, end),
+      start,
+      end,
+    };
   }
 
   private flatMaterial(
